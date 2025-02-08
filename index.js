@@ -117,8 +117,27 @@ io.on('connection', (socket) => {
     }
 });
 
+   socket.on('typing-state', (data) => {
+    let userid = data.uid;
+    let client = data.to;
+    let action = data.action;
+  if (users[client]?.socketID) {
+        let clientSocketId = users[client].socketID;
 
-    
+        // Check if the client is active (online)
+        if (ActiveUser[clientSocketId]) {
+            console.log(`User ${client} is online, sending typing state...`);
+        socket.to(clientSocketId).emit('typing-state', { uid: userid, action: action });
+        console.log(`Typing state sent to ${client} (Socket ID: ${clientSocketId})`);
+        }
+
+        // Emit the event only to the intended client
+    } else {
+        console.log(`User ${client} not found or offline.`);
+    }
+});
+
+
     socket.on('message', (data) => {
         console.log('Received message:', data);
         io.emit('message', data); // Broadcast message to all clients
