@@ -5,13 +5,12 @@ const cors = require('cors');
 const admin = require('firebase-admin');
 const path = require('path');
 require('dotenv').config();
-const fs = require('fs');
 
-const serviceAccountPath = '/secrets/firebase-service-account.json';
-const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+var serviceAccount = require("./serviceAccountKey.json");
+
 admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL // Replace with your Firebase DB URL
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://hootie-serverstate-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
 
 const db = admin.database();
