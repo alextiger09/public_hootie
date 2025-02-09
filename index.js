@@ -5,8 +5,10 @@ const cors = require('cors');
 const admin = require('firebase-admin');
 const path = require('path');
 require('dotenv').config();
-const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
-serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+const fs = require('fs');
+
+const serviceAccountPath = '/secrets/firebase-service-account.json';
+const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: process.env.FIREBASE_DATABASE_URL // Replace with your Firebase DB URL
