@@ -2,6 +2,15 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const admin = require('firebase-admin');
+const path = require('path');
+const serviceAccount = require('./hootie-serverstate-firebase-adminsdk-fbsvc-925308cb6c.json');
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: 'https://hootie-serverstate-default-rtdb.asia-southeast1.firebasedatabase.app' // Replace with your Firebase DB URL
+});
+
+const db = admin.database();
 
 const app = express();
 const server = http.createServer(app);
@@ -27,6 +36,79 @@ let users = {};
 let ActiveUser = {};
 let pendingMessages = {};
 
+// backup Retrival
+
+async function loadUserCountFromFirebase() {
+    try {
+        const snapshot = await db.ref('backups/userCount').once('value');
+        userCount = snapshot.val() || 0;
+        console.log('✅ User count restored from Firebase.');
+    } catch (error) {
+        console.error('❌ Error loading user count from Firebase:', error);
+    }
+}
+
+async function loadUsersFromFirebase() {
+    try {
+        const snapshot = await db.ref('backups/users').once('value');
+        users = snapshot.val() || {};
+        console.log('✅ Users restored from Firebase.');
+    } catch (error) {
+        console.error('❌ Error loading users from Firebase:', error);
+    }
+}
+
+async function loadPendingMessagesFromFirebase() {
+    try {
+        const snapshot = await db.ref('backups/pendingMessages').once('value');
+        pendingMessages = snapshot.val() || {};
+        console.log('✅ Pending messages restored from Firebase.');
+    } catch (error) {
+        console.error('❌ Error loading pending messages from Firebase:', error);
+    }
+}
+
+
+async function loadAllBackups() {
+    await loadUserCountFromFirebase();
+    await loadUsersFromFirebase();
+    await loadPendingMessagesFromFirebase();
+}
+
+loadAllBackups();
+
+
+
+// firebase backup 
+
+async function saveUserCountToFirebase() {
+    try {
+        await db.ref('backups/userCount').set(userCount);
+        console.log('✅ User count backup saved to Firebase.');
+    } catch (error) {
+        console.error('❌ Error saving user count to Firebase:', error);
+    }
+}
+
+async function saveUsersToFirebase() {
+    try {
+        await db.ref('backups/users').set(users);
+        console.log('✅ Users backup saved to Firebase.');
+    } catch (error) {
+        console.error('❌ Error saving users to Firebase:', error);
+    }
+}
+
+async function savePendingMessagesToFirebase() {
+    try {
+        await db.ref('backups/pendingMessages').set(pendingMessages);
+        console.log('✅ Pending messages backup saved to Firebase.');
+    } catch (error) {
+        console.error('❌ Error saving pending messages to Firebase:', error);
+    }
+}
+
+
 
 // Handle socket connection
 io.on('connection', (socket) => {
@@ -36,7 +118,19 @@ io.on('connection', (socket) => {
         ActiveUser[socket.id] = data;
         users[data.uid] = data;
         userCount++;
+
+        Promise.all([
+        saveUserCountToFirebase(),
+        saveUsersToFirebase()
+        ])
+        .then(() => {
+        console.log('connection backup completed.');
+    })
+    .catch((error) => {
+        console.error('Error during connection backup:', error);
+    });
         console.log(userCount, users)
+
         
     });
     socket.on('pendingIntent', (data) => {
@@ -55,6 +149,15 @@ io.on('connection', (socket) => {
     // Increment the PendingMsg counter
     pendingMessages[receiver][chatId].PendingMsg += 1;
     console.log(pendingMessages)
+    Promise.all([
+        savePendingMessagesToFirebase()
+        ])
+        .then(() => {
+        console.log('pendingIntent backup completed.');
+    })
+    .catch((error) => {
+        console.error('Error during pendingIntent backup:', error);
+    });
 
     console.log(`Pending message count for ${receiver} in chat ${chatId}: ${pendingMessages[receiver][chatId].PendingMsg}`);
 });
@@ -84,6 +187,15 @@ io.on('connection', (socket) => {
             // Check if pendingMessages[uid] exists before attempting to modify
             if (pendingMessages[uid] && pendingMessages[uid][chatId]) {
                 pendingMessages[uid][chatId] = { PendingMsg: 0 };
+                Promise.all([
+                    savePendingMessagesToFirebase()
+                ])
+                .then(() => {
+                    console.log('pending Cleaner backup completed.');
+                })
+                .catch((error) => {
+                    console.error('Error during pending Cleaner backup:', error);
+                });
                 console.log(`Pending messages cleared for UID: ${uid}, ChatID: ${chatId}`);
             } else {
                 console.log(`No pending messages found for UID: ${uid}, ChatID: ${chatId}`);
@@ -156,9 +268,19 @@ io.on('connection', (socket) => {
         // Decrement user count
         userCount--;
         console.log(`User disconnected: ${socketId}, UID: ${uid}`);
-        
+
+         Promise.all([
+         saveUserCountToFirebase(),
+         saveUsersToFirebase()
+        ])
+        .then(() => {
+           console.log('disconnect backup completed.');
+           delete ActiveUser[socketId];
+        })
+        .catch((error) => {
+            console.error('Error during disconnect backup:', error);
+         });
         // Remove the user from ActiveUser and users
-        delete ActiveUser[socketId];
         // Log the remaining user count
         console.log('Current user count:', userCount);
     } else {
@@ -167,6 +289,24 @@ io.on('connection', (socket) => {
 });
 
 });
+
+app.get('/backup', (req, res) => {
+    Promise.all([
+        saveUserCountToFirebase(),
+        saveUsersToFirebase(),
+        savePendingMessagesToFirebase()
+    ])
+    .then(() => {
+        console.log('✅ Manual backup completed.');
+        res.status(200).json({ message: 'Backup successful' });
+    })
+    .catch((error) => {
+        console.error('❌ Error during manual backup:', error);
+        res.status(500).json({ message: 'Backup failed', error: error.message });
+    });
+});
+
+
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
